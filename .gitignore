@@ -1,0 +1,8 @@
+.DS_Store 
+*.autosave 
+*.save
+*~
+*.pyc
+sdk
+logs
+config
