@@ -25,8 +25,12 @@ def notify():
     if not isinstance(notification["devices"], list):
         return "Parameter 'devices' must be an array"
     # route the notification through FCM
-    result = push_service.notify_multiple_devices(registration_ids=notification["devices"], message_title=notification["house_name"], message_body=notification
-    ["message"])
+    data_message = {
+        "type": "notification",
+        "title": notification["house_name"],
+        "body": notification["message"]
+    }
+    result = push_service.notify_multiple_devices(registration_ids=notification["devices"], data_message=data_message)
     # log the result
     print "["+notification["gateway_hostname"]+"]["+notification["house_id"]+"]["+notification["severity"].upper()+"] notified "+str(result["success"])+"/"+str(len(notification["devices"]))+" devices"
     if debug:
