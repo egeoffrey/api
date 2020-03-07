@@ -30,8 +30,10 @@ def notify():
         "title": notification["house_name"],
         "body": notification["message"]
     }
-    result = push_service.notify_multiple_devices(registration_ids=notification["devices"], data_message=data_message)
+    result = push_service.multiple_devices_data_message(registration_ids=notification["devices"], data_message=data_message)
     # log the result
+    if result["failure"] > 0:
+        print "["+notification["gateway_hostname"]+"]["+notification["house_id"]+"]["+notification["severity"].upper()+"] ERROR: "+str(result["results"][0]["error"])
     print "["+notification["gateway_hostname"]+"]["+notification["house_id"]+"]["+notification["severity"].upper()+"] notified "+str(result["success"])+"/"+str(len(notification["devices"]))+" devices"
     if debug:
         print notification["message"]+": "+str(result)
