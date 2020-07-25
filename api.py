@@ -3,22 +3,107 @@ import os
 import sys
 from flask import Flask, request
 import requests
+import logging
+import jwt
+import IPy
 
-# constants and variables
-version = "1.0-2"
-api_version = 1
-debug = int(os.getenv("DEBUG", 0))
-config_file = "config/config.json"
+# variables
+NOTIFICATION_FIREBASE_KEY = os.getenv("NOTIFICATION_FIREBASE_KEY", None)
+AUTH_APP_URL = os.getenv("AUTH_APP_URL", None)
+AUTH_APP_CLIENT_ID = os.getenv("AUTH_APP_CLIENT_ID", None)
+AUTH_APP_CLIENT_SECRET = os.getenv("AUTH_APP_CLIENT_SECRET", None)
+AUTH_APP_AUDIENCE = os.getenv("AUTH_APP_AUDIENCE", None)
+
+DEBUG = int(os.getenv("DEBUG", 0))
+
+# initialization
+version = "1.0-3"
 app = Flask(__name__)
-config = None
-url = "https://fcm.googleapis.com/fcm/send"
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.WARNING)
 
-def print_log(notification, message):
-    print "["+notification["gateway_hostname"]+"]["+notification["house_id"]+"]["+notification["severity"].upper()+"] "+str(message)
+# check if an IP is private
+def is_private_ip(ip):
+    ip = IPy.IP(ip)
+    if ip.iptype() in ["PRIVATE", "LOOPBACK"]: 
+        return True
+    return False
+    
+# auth api (on_register_hook) - implement the oauth "Resource Owner Password Grant" flow
+@app.route("/api/v1/auth/on_register_hook", methods=['POST', 'GET'])
+def auth_on_register_hook():
+    # get the request
+    payload = request.get_json(force=True)
+    response_headers = {
+        "cache-control": "max-age=300"
+    }
+    # ensure the api is configured
+    if AUTH_APP_AUDIENCE is None or AUTH_APP_CLIENT_ID is None or AUTH_APP_CLIENT_SECRET is None or AUTH_APP_URL is None:
+        error = "api not configured"
+        print "ERROR: "+error
+        return (json.dumps({"result": {"error": error}}), 500)
+    # sanity checks
+    if not is_private_ip(request.remote_addr):
+        error = 'not allowed to call this api from '+request.remote_addr
+        print "ERROR: "+error
+        return (json.dumps({'result': {'error': error}}), 500)
+    if "password" not in payload or "username" not in payload: 
+        error = 'username/password not provided'
+        print "ERROR: "+error
+        return (json.dumps({'result': {'error': error}}), 500)
+    log_prefix = "[AUTH]["+payload["username"]+"] "
+    # prepare the oauth request
+    request_headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {
+        "grant_type": "password",
+        "username": payload["username"],
+        "password": payload["password"],
+        "audience": AUTH_APP_AUDIENCE,
+        "client_id": AUTH_APP_CLIENT_ID,
+        "client_secret": AUTH_APP_CLIENT_SECRET,
+    }
+    # send the oauth request
+    if DEBUG:
+        print log_prefix+"IAM request: "+json.dumps(data)
+    response = requests.post(AUTH_APP_URL, headers=request_headers, data=data)
+    # parse the response
+    try:
+        result = json.loads(response.text)
+        # successful authentication
+        if "access_token" in result:
+            print log_prefix+"OK"
+            token = jwt.decode(result["access_token"], "", verify=False)
+            # grant access and set ACLs
+            response_text = {
+                "result": "ok",
+                "publish_acl": [
+                    {
+                        "pattern": "egeoffrey/+/"+payload["username"]+"/#"
+                    }
+                ],
+                "subscribe_acl": [
+                    {
+                        "pattern": "egeoffrey/+/"+payload["username"]+"/#"
+                    }
+                ]
+            }
+            return (json.dumps(response_text), 200, response_headers)
+        # failed authentication
+        else:
+            print log_prefix+"ERROR: "+result["error_description"]
+            return (json.dumps({'result': {'error': result["error_description"]}}), 200, response_headers)
+    except Exception, e:
+        print log_prefix+"ERROR: "+str(e)
+        return (json.dumps({'result': {'error': str(e)}}), 500)
 
 # notify api
-@app.route("/api/v"+str(api_version)+"/notify", methods=['POST', 'GET'])
+@app.route("/api/v1/notify", methods=['POST', 'GET'])
 def notify():
+    if NOTIFICATION_FIREBASE_KEY is None:
+        return "api not configured"
+    firebase_url = "https://fcm.googleapis.com/fcm/send"
     # parse the request json payload
     notification = request.get_json(force=True)
     # ensure mandatory settings are provided
@@ -29,12 +114,13 @@ def notify():
         return "Parameter 'devices' must be an array"
     if len(notification["devices"]) == 0:
         return "Parameter 'devices' must contain at least one value"
-    if debug:
-        print_log(notification, "received notification: "+str(notification))
+    log_prefix = "["+notification["gateway_hostname"]+"]["+notification["house_id"]+"]["+notification["severity"].upper()+"] "
+    if DEBUG:
+        print log_prefix+"received notification: "+str(notification)
     # route the notification through FCM
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "key="+config["fcm_server_key"]
+        "Authorization": "key="+NOTIFICATION_FIREBASE_KEY
     }
     success = 0
     failure = 0
@@ -52,34 +138,34 @@ def notify():
         message["to"] = device
         message["data"] = data
         # send the request to Firebase
-        if debug:
-            print_log(notification, "FCM request: "+json.dumps(message))
-        response = requests.post(url, headers=headers, data=json.dumps(message))
+        if DEBUG:
+            print log_prefix+"FCM request: "+json.dumps(message)
+        response = requests.post(firebase_url, headers=headers, data=json.dumps(message))
         # check for errors
         if response.status_code != 200:
-            print_log(notification, "ERROR: "+str(response.text))
+            print log_prefix+"ERROR: "+str(response.text)
             failure = failure+1
             results[device] = str(response.text)
             continue
         try:
             result = json.loads(response.text)
         except Exception, e:
-            print_log(notification, "ERROR: "+str(e))
+            print log_prefix+"ERROR: "+str(e)
             failure = failure+1
             results[device] = str(e)
             continue
         if result["failure"] > 0:
-            print_log(notification, "ERROR: "+str(result["results"][0]["error"]))
+            print log_prefix+"ERROR: "+str(result["results"][0]["error"])
             failure = failure+1
             results[device] = str(result["results"][0]["error"])
             continue
         # sent successfully
         success = success+1
         results[device] = "OK"
-        if debug:
-            print_log(notification, "FCM response: "+str(result))
+        if DEBUG:
+            print log_prefix+"FCM response: "+str(result)
     # print summary information
-    print_log(notification, "notified "+str(success)+"/"+str(len(notification["devices"]))+" devices")
+    print log_prefix+"notified "+str(success)+"/"+str(len(notification["devices"]))+" devices"
     # return the result
     output = {
         "success": success,
@@ -96,19 +182,5 @@ def catch_all(path):
 
 # main
 if __name__ == '__main__':
-    # load the configuration file
-    if not os.path.isfile(config_file):
-        print "configuration file not found at "+config_file
-        sys.exit(1)
-    try:
-        with open(config_file) as json_file:
-            config = json.load(json_file)
-    except Exception, e: 
-        print "unable to parse configuration file "+config_file+": "+str(e)
-        sys.exit(1)
-    for setting in ["fcm_server_key"]:
-        if setting not in config:
-            print "setting "+setting+" not found in configuration file"
-            sys.exit(1)
     # run the api server
-    app.run(host= '0.0.0.0', debug=debug)
+    app.run(host= '0.0.0.0', debug=DEBUG, threaded=True)
