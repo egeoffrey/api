@@ -67,7 +67,13 @@ def auth_on_register_hook():
     # send the oauth request
     if DEBUG:
         print log_prefix+"IAM request: "+json.dumps(data)
-    response = requests.post(AUTH_APP_URL, headers=request_headers, data=data)
+    try:
+        response = requests.post(AUTH_APP_URL, headers=request_headers, data=data)
+    except Exception, e:
+        print log_prefix+"ERROR: "+str(e)
+        return (json.dumps({'result': {'error': str(e)}}), 500)
+    if DEBUG:
+        print log_prefix+"IAM response: "+response.text
     # parse the response
     try:
         result = json.loads(response.text)
