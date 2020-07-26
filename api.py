@@ -17,10 +17,11 @@ AUTH_APP_AUDIENCE = os.getenv("AUTH_APP_AUDIENCE", None)
 DEBUG = int(os.getenv("DEBUG", 0))
 
 # initialization
-version = "1.0-3"
+version = "1.0-4"
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.WARNING)
+print "Running API Server v"+version
 
 # check if an IP is private
 def is_private_ip(ip):
