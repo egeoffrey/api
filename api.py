@@ -44,10 +44,10 @@ def auth_on_register_hook():
         print "ERROR: "+error
         return (json.dumps({"result": {"error": error}}), 500)
     # sanity checks
-    if not is_private_ip(request.remote_addr):
-        error = 'not allowed to call this api from '+request.remote_addr
-        print "ERROR: "+error
-        return (json.dumps({'result': {'error': error}}), 500)
+    #if not is_private_ip(request.remote_addr):
+    #    error = 'not allowed to call this api from '+request.remote_addr
+    #    print "ERROR: "+error
+    #    return (json.dumps({'result': {'error': error}}), 500)
     if "password" not in payload or "username" not in payload: 
         error = 'username/password not provided'
         print "ERROR: "+error
