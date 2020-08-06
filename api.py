@@ -184,7 +184,7 @@ def chatbot_google_assistant():
         for i in range(1,8):
             time.sleep(0.5)
             # check if we have been replied
-            if userdata["response"] is not None:
+            if "response" in userdata and userdata["response"] is not None:
                 # disconnect from the gateway
                 mqtt_client.loop_stop()
                 mqtt_client.disconnect()
