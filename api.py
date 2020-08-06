@@ -160,15 +160,7 @@ def chatbot_google_assistant():
                 "prompt": {
                     "override": False,
                     "firstSimple": {
-                      "speech": chatbot_response,
-                      "text": chatbot_response
-                    }
-                },
-                "scene": {
-                    "name": "SceneName",
-                    "slots": {},
-                    "next": {
-                      "name": "actions.scene.END_CONVERSATION"
+                      "speech": chatbot_response
                     }
                 }
             }
